@@ -2,19 +2,26 @@ import pandas as pd
 from playwright.async_api import async_playwright
 import asyncio
 import os
-import logging
 from datetime import datetime
 
-# Configurar logs
-log_filename = f"log_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
-logging.basicConfig(filename=log_filename, level=logging.INFO,
-                    format="%(asctime)s - %(levelname)s - %(message)s")
+# Crear carpetas si no existen
+os.makedirs("logs", exist_ok=True)
+os.makedirs("excels", exist_ok=True)
 
-async def main():
-    search_term = input("🔍 Ingresa el producto que deseas buscar: ").strip().replace(" ", "%20")
+# Función para registrar logs
+def registrar_log(mensaje):
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S,%f")[:-3]
+    log_file = f"logs/log_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+    with open(log_file, "a", encoding="utf-8") as f:
+        f.write(f"{now} - INFO - {mensaje}\n")
+
+# Función principal de scraping
+async def buscar_productos():
+    search_term_raw = input("\n🔍 Ingresa el producto que deseas buscar: ").strip()
+    search_term = search_term_raw.replace(" ", "%20")
     url = f"https://www.tottus.com.pe/tottus-pe/buscar?Ntt={search_term}"
     print(f"🌐 Buscando en: {url}\n")
-    logging.info(f"Iniciando búsqueda de: {search_term}")
+    registrar_log(f"Iniciando búsqueda de: {search_term}")
 
     products = []
 
@@ -28,7 +35,6 @@ async def main():
             await page.wait_for_selector("a[data-pod='catalyst-pod']", timeout=10000)
         except:
             print("❌ No se encontraron productos.")
-            logging.warning("No se encontraron productos.")
             await browser.close()
             return
 
@@ -55,6 +61,7 @@ async def main():
                 link = "https://www.tottus.com.pe" + href if href else "Sin enlace"
 
                 products.append({
+                    "Búsqueda": search_term_raw,
                     "Nombre": nombre.strip(),
                     "💻 Precio Internet": precio_internet,
                     "💳 Precio CMR": precio_cmr,
@@ -64,37 +71,60 @@ async def main():
                 })
 
                 print(f"✅ {nombre} - {precio_internet}")
-                logging.info(f"Producto OK: {nombre} - {precio_internet}")
-
+                registrar_log(f"Producto OK: {nombre} - {precio_internet}")
             except Exception as e:
                 print(f"❌ Error con producto: {e}")
-                logging.error(f"Error con producto: {e}")
+                registrar_log(f"ERROR: {e}")
                 continue
 
         await browser.close()
 
-    # Guardar en Excel sin sobrescribir
+    # Guardar Excel en carpeta con nombre personalizado
     if products:
-        base_name = "productos_tottus_completo"
+        safe_term = search_term_raw.lower().replace(" ", "_").replace("%", "")
+        base_name = f"excels/productos_{safe_term}"
         filename = f"{base_name}.xlsx"
         counter = 1
-
         while os.path.exists(filename):
-            try:
-                with open(filename, 'r'):
-                    filename = f"{base_name}_{counter}.xlsx"
-                    counter += 1
-            except PermissionError:
-                filename = f"{base_name}_{counter}.xlsx"
-                counter += 1
+            filename = f"{base_name}_{counter}.xlsx"
+            counter += 1
 
         df = pd.DataFrame(products)
         df.to_excel(filename, index=False)
         print(f"📄 Archivo {filename} generado correctamente.")
-        logging.info(f"Archivo {filename} guardado con {len(products)} productos.")
+        registrar_log(f"Archivo {filename} generado correctamente.")
     else:
         print("⚠️ No se extrajo ningún dato.")
-        logging.warning("No se extrajo ningún dato.")
+        registrar_log("⚠️ No se extrajo ningún dato.")
 
-# Ejecutar
-asyncio.run(main())
+# Menú de consola
+def menu():
+    while True:
+        print("\n========= MENÚ PRINCIPAL =========")
+        print("1. 🔍 Buscar productos y exportar a Excel")
+        print("2. 📂 Ver archivos Excel generados")
+        print("3. 📜 Ver logs")
+        print("4. 🚪 Salir")
+        opcion = input("Selecciona una opción (1-4): ")
+
+        if opcion == "1":
+            asyncio.run(buscar_productos())
+        elif opcion == "2":
+            print("\n📄 Archivos Excel disponibles:")
+            for file in os.listdir("excels"):
+                if file.endswith(".xlsx"):
+                    print(f" - {file}")
+        elif opcion == "3":
+            print("\n📜 Logs disponibles:")
+            for file in os.listdir("logs"):
+                if file.startswith("log_") and file.endswith(".log"):
+                    print(f" - {file}")
+        elif opcion == "4":
+            print("👋 ¡Hasta pronto!")
+            break
+        else:
+            print("⚠️ Opción no válida. Intenta nuevamente.")
+
+# Ejecutar menú
+if __name__ == "__main__":
+    menu()
